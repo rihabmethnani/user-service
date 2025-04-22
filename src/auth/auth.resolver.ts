@@ -1,6 +1,8 @@
-import { Resolver, Mutation, Args } from '@nestjs/graphql';
+import { Resolver, Mutation, Args, Query
+ } from '@nestjs/graphql';
 import { AuthService } from './auth.service';
 import { AuthResponse } from './dto/auth-response';
+import { User } from 'src/user/entities/user.entity';
 
 @Resolver()
 export class AuthResolver {
@@ -20,5 +22,10 @@ export class AuthResolver {
   async validateToken(@Args('token') token: string): Promise<boolean> {
     const { isValid } = await this.authService.validateToken(token);
     return isValid;
+  }
+
+  @Query(() => User)
+  async loadMe(@Args('token') token: string): Promise<User> {
+    return this.authService.loadMe(token);
   }
 }

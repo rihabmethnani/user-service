@@ -35,5 +35,15 @@ export class CreateUserDto {
 
   @Field(() => String, { nullable: true })
   @IsOptional()
-  createdBy?: string; // ID de l'utilisateur qui crée cet utilisateur
+  createdBy?: string; 
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  companyName?: string;
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  positionGPS?: string; 
+
+
 }

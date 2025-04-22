@@ -1,7 +1,7 @@
 import { Resolver, Mutation, Args, Context, Query } from '@nestjs/graphql';
 import { UserService } from './user.service';
 import { User } from './entities/user.entity';
-import { NotFoundException, UseGuards, ForbiddenException } from '@nestjs/common';
+import { NotFoundException, UseGuards, ForbiddenException, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { Role } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { Roles } from 'src/auth/roles.decorator';
@@ -9,69 +9,63 @@ import { RolesGuard } from 'src/auth/roles.guard';
 import { JwtAuthGuard } from 'src/auth/jwt.guard';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CurrentUser } from 'src/decoraters/current-user.decorator';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @Resolver(() => User)
 export class UserResolver {
-  constructor(private readonly userService: UserService) {}
+  constructor(private readonly userService: UserService) { }
 
-  // Mutation pour créer un administrateur (seul un admin peut créer un admin)
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN) // Seul un ADMIN peut créer un autre ADMIN
+  @Roles(Role.SUPER_ADMIN) 
+  @UseInterceptors(FileInterceptor('image'))
   async createAdmin(
     @Args('createUserDto') createUserDto: CreateUserDto,
+    @UploadedFile() file: Express.Multer.File,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
 
-    // Vérifier que l'utilisateur authentifié est un ADMIN
-    if (authenticatedUser.role !== Role.ADMIN) {
-      throw new ForbiddenException('Only ADMIN can create another ADMIN.');
+    if (authenticatedUser.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SUPER ADMIN can create another ADMIN.');
     }
-
-    // Forcer le rôle ADMIN
+    if (file) {
+      createUserDto.image = `/uploads/${file.filename}`;
+    }
     createUserDto.role = Role.ADMIN;
 
     return this.userService.create(createUserDto);
   }
 
-  // Mutation pour créer un partenaire (seul un admin peut créer un partenaire)
   @Mutation(() => User)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN) // Seul un ADMIN peut créer un PARTNER
+  @UseInterceptors(FileInterceptor('image'))
   async createPartner(
     @Args('createUserDto') createUserDto: CreateUserDto,
+    @UploadedFile() file: Express.Multer.File,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
-
-    // Vérifier que l'utilisateur authentifié est un ADMIN
-    if (authenticatedUser.role !== Role.ADMIN) {
-      throw new ForbiddenException('Only ADMIN can create a PARTNER.');
+    if (file) {
+      createUserDto.image = `/uploads/${file.filename}`;
     }
-
-    // Forcer le rôle PARTNER
     createUserDto.role = Role.PARTNER;
 
     return this.userService.create(createUserDto);
   }
 
-  // Mutation pour créer un client (un admin ou un partenaire peut créer un client)
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.PARTNER) // ADMIN et PARTNER peuvent créer un CLIENT
+  @Roles(Role.PARTNER) 
   async createClient(
     @Args('createUserDto') createUserDto: CreateUserDto,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
 
-    // Vérifier que l'utilisateur authentifié est un ADMIN ou un PARTNER
     if (
-      authenticatedUser.role !== Role.ADMIN &&
       authenticatedUser.role !== Role.PARTNER
     ) {
-      throw new ForbiddenException('Only ADMIN or PARTNER can create a CLIENT.');
+      throw new ForbiddenException('Only PARTNER can create a CLIENT.');
     }
 
     // Forcer le rôle CLIENT
@@ -80,31 +74,27 @@ export class UserResolver {
     return this.userService.create(createUserDto);
   }
 
-  // Mutation pour créer un chauffeur (seul un admin peut créer un chauffeur)
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN) // Seul un ADMIN peut créer un DRIVER
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN) 
   async createDriver(
     @Args('createUserDto') createUserDto: CreateUserDto,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
 
-    // Vérifier que l'utilisateur authentifié est un ADMIN
-    if (authenticatedUser.role !== Role.ADMIN) {
-      throw new ForbiddenException('Only ADMIN can create a DRIVER.');
+    if (authenticatedUser.role !== Role.ADMIN && authenticatedUser.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SUPER_ADMIN or ADMIN can create a DRIVER.');
     }
 
-    // Forcer le rôle DRIVER
     createUserDto.role = Role.DRIVER;
 
     return this.userService.create(createUserDto);
   }
 
-  // Query pour récupérer un utilisateur par email (seul un admin peut accéder)
   @Query(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async getUserByEmail(@Args('email') email: string): Promise<User> {
     const user = await this.userService.findByEmail(email);
     if (!user) {
@@ -114,57 +104,117 @@ export class UserResolver {
   }
 
 
+  // @Mutation(() => User)
+  // @UseGuards(JwtAuthGuard, RolesGuard)
+  // async updateUser(
+  //   @Args('id') id: string,
+  //   @Args('updateUserDto') updateUserDto: UpdateUserDto,
+  //   @Context() context,
+  // ): Promise<User> {
+  //   const authenticatedUser = context.req.user;
+  //   const userToUpdate = await this.userService.getById(id);
+
+  //   if (!userToUpdate) {
+  //     throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
+  //   }
+
+  //   if (authenticatedUser.role === Role.ADMIN && authenticatedUser.role === Role.SUPER_ADMIN) {
+  //     const updatedUser = await this.userService.update(id, updateUserDto);
+  //     if (!updatedUser) {
+  //       throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
+  //     }
+  //     return updatedUser;
+  //   }
+
+  //   if (
+  //     authenticatedUser.role === Role.PARTNER &&
+  //     userToUpdate.role === Role.CLIENT
+  //   ) {
+  //     const updatedUser = await this.userService.update(id, updateUserDto);
+  //     if (!updatedUser) {
+  //       throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
+  //     }
+  //     return updatedUser;
+  //   }
+
+  //   if (
+  //     authenticatedUser.role === Role.CLIENT &&
+  //     authenticatedUser._id.toString() === id
+  //   ) {
+  //     const updatedUser = await this.userService.update(id, updateUserDto);
+  //     if (!updatedUser) {
+  //       throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
+  //     }
+  //     return updatedUser;
+  //   }
+
+  //   throw new ForbiddenException('You are not authorized to update this user.');
+  // }
+
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  async updateUser(
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  async updateAdmin(
     @Args('id') id: string,
     @Args('updateUserDto') updateUserDto: UpdateUserDto,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
-    const userToUpdate = await this.userService.getById(id);
+    const adminToUpdate = await this.userService.getById(id);
   
-    if (!userToUpdate) {
-      throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
+    if (!adminToUpdate) {
+      throw new NotFoundException(`Admin with ID ${id} not found or has been deleted.`);
     }
   
-    // Admin peut mettre à jour tout le monde
-    if (authenticatedUser.role === Role.ADMIN) {
-      const updatedUser = await this.userService.update(id, updateUserDto);
-      if (!updatedUser) {
-        throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
-      }
-      return updatedUser;
+    if (adminToUpdate.role !== Role.ADMIN) {
+      throw new ForbiddenException(`User with ID ${id} is not an ADMIN.`);
     }
   
-    // Partenaire peut mettre à jour les clients
-    if (
-      authenticatedUser.role === Role.PARTNER &&
-      userToUpdate.role === Role.CLIENT
-    ) {
-      const updatedUser = await this.userService.update(id, updateUserDto);
-      if (!updatedUser) {
-        throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
-      }
-      return updatedUser;
+    const updatedUser = await this.userService.update(id, updateUserDto);
+  
+    if (!updatedUser) {
+      throw new NotFoundException(`Failed to update admin with ID ${id}.`);
     }
   
-    // Client peut se mettre à jour lui-même
-    if (
-      authenticatedUser.role === Role.CLIENT &&
-      authenticatedUser._id.toString() === id
-    ) {
-      const updatedUser = await this.userService.update(id, updateUserDto);
-      if (!updatedUser) {
-        throw new NotFoundException(`User with ID ${id} not found or has been deleted.`);
-      }
-      return updatedUser;
-    }
-  
-    throw new ForbiddenException('You are not authorized to update this user.');
+    return updatedUser; // Ici, TypeScript sait que updatedUser ne sera jamais null
   }
 
-  // Mutation pour supprimer un utilisateur (soft remove)
+  @Mutation(() => User)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.PARTNER)
+async updatePartner(
+  @Args('id') id: string,
+  @Args('updateUserDto') updateUserDto: UpdateUserDto,
+  @Context() context,
+): Promise<User> {
+  const authenticatedUser = context.req.user;
+  const partnerToUpdate = await this.userService.getById(id);
+
+  if (!partnerToUpdate) {
+    throw new NotFoundException(`Partner with ID ${id} not found or has been deleted.`);
+  }
+
+  if (partnerToUpdate.role !== Role.PARTNER) {
+    throw new ForbiddenException(`User with ID ${id} is not a PARTNER.`);
+  }
+
+  // Un PARTNER ne peut mettre à jour que son propre compte
+  if (
+    authenticatedUser.role === Role.PARTNER &&
+    authenticatedUser._id.toString() !== id
+  ) {
+    throw new ForbiddenException('You are not authorized to update this partner.');
+  }
+
+  const updatedUser = await this.userService.update(id, updateUserDto);
+
+  if (!updatedUser) {
+    throw new NotFoundException(`Failed to update partner with ID ${id}.`);
+  }
+
+  return updatedUser;
+}
+
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
   async softRemoveUser(
@@ -178,8 +228,7 @@ export class UserResolver {
       throw new NotFoundException(`User with ID ${id} not found.`);
     }
 
-    // Admin peut supprimer tout le monde
-    if (authenticatedUser.role === Role.ADMIN) {
+    if (authenticatedUser.role === Role.SUPER_ADMIN) {
       const deletedUser = await this.userService.softRemove(id);
       if (!deletedUser) {
         throw new NotFoundException(`User with ID ${id} not found.`);
@@ -187,7 +236,6 @@ export class UserResolver {
       return deletedUser;
     }
 
-    // Partenaire peut supprimer les clients
     if (
       authenticatedUser.role === Role.PARTNER &&
       userToDelete.role === Role.CLIENT
@@ -205,7 +253,7 @@ export class UserResolver {
 
   @Query(() => [User])
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.PARTNER) 
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async getAllUsers(): Promise<User[]> {
     return this.userService.getAll();
   }
@@ -222,7 +270,7 @@ export class UserResolver {
 
   @Query(() => [User])
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN) 
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async getUsersByRole(@Args('role') role: Role): Promise<User[]> {
     return this.userService.getByRole(role);
   }
@@ -230,15 +278,35 @@ export class UserResolver {
 
   @Query(() => [User])
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.PARTNER) 
+  @Roles(Role.PARTNER)
   async getAllClients(): Promise<User[]> {
     return this.userService.getByRole(Role.CLIENT);
   }
 
   @Query(() => User)
-@UseGuards(JwtAuthGuard) // Garde pour valider le token JWT
-async validateToken(@CurrentUser() user: any): Promise<any> {
-  return user; // Retourne les informations de l'utilisateur connecté
-}
+  @UseGuards(JwtAuthGuard) 
+  async validateToken(@CurrentUser() user: any): Promise<any> {
+    return user;
+  }
+
+  @Mutation(() => User)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  async validatePartner(
+    @Args('partnerId') partnerId: string,
+    @CurrentUser() admin: User,
+  ): Promise<User> {
+    const partner = await this.userService.getById(partnerId);
+    if (!partner) {
+      throw new NotFoundException(`User with ID ${partnerId} not found.`);
+    }
+    if (partner.role !== Role.PARTNER) {
+      throw new ForbiddenException('Only PARTNER users can be validated.');
+    }
+
+    const updatedPartner = await this.userService.validatePartner(partnerId);
+
+    return updatedPartner;
+  }
 
 }

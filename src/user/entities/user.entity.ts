@@ -3,7 +3,9 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
 export enum Role {
+  SUPER_ADMIN="SUPER_ADMIN",
   ADMIN = 'ADMIN',
+  ADMIN_ASSISTANT='ADMIN_ASSISTANT',
   PARTNER = 'PARTNER',
   CLIENT = 'CLIENT',
   DRIVER = 'DRIVER',
@@ -51,6 +53,18 @@ export class User extends Document {
   @Field(() => ID, { nullable: true }) 
   @Prop() 
   createdBy?: string; 
+
+  @Field({ nullable: true }) 
+  @Prop() 
+  companyName?: string;
+
+  @Field({ nullable: true }) 
+  @Prop() 
+  positionGPS?: string;
+
+  @Field({defaultValue: false})
+  @Prop()
+  isValid?: boolean;
 
   @Field(() => Date) 
   @Prop()

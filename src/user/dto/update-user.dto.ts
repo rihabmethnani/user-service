@@ -26,4 +26,12 @@ export class UpdateUserDto {
   @IsOptional()
   image?: string;
 
+   @Field(() => String, { nullable: true })
+    @IsOptional()
+    companyName?: string;
+  
+    @Field(() => String, { nullable: true })
+    @IsOptional()
+    positionGPS?: string; 
+
 }

@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User } from './entities/user.entity';
@@ -26,12 +26,12 @@ export class UserService implements OnModuleInit {
 
     const admin = await this.userModel.findOne({ email: adminEmail }).exec();
     if (!admin) {
-      const hashedPassword = await bcrypt.hash('admin123', 10);
+      const hashedPassword = await bcrypt.hash('superAdmin123', 10);
       const adminDto = {
         email: adminEmail,
         password: hashedPassword,
-        role: Role.ADMIN,
-        name: 'Admin',
+        role: Role.SUPER_ADMIN,
+        name: 'Super_Admin',
       };
 
       const createdAdmin = await this.userModel.create(adminDto);
@@ -39,9 +39,9 @@ export class UserService implements OnModuleInit {
       // Publier un événement "USER_CREATED" pour l'admin
       await this.rabbitMQService.publishEvent('ADMIN_CREATED', createdAdmin);
 
-      console.log('Admin created successfully');
+      console.log('Super_Admin created successfully');
     } else {
-      console.log('Admin already exists');
+      console.log('Super_Admin already exists');
     }
   }
 
@@ -118,4 +118,28 @@ export class UserService implements OnModuleInit {
   async getByRole(role: Role): Promise<User[]> {
     return this.userModel.find({ role, deletedAt: null }).exec();
   }
+
+async validatePartner(partnerId: string): Promise<User> {
+  const partner = await this.userModel.findByIdAndUpdate(
+    partnerId,
+    { 
+      isValid: true,
+      updatedAt: new Date() 
+    },
+    { new: true }
+  ).exec();
+
+  if (!partner) {
+    throw new NotFoundException(`Partner with ID ${partnerId} not found.`);
+  }
+
+  // Vérifier que c'est bien un partenaire
+  if (partner.role !== Role.PARTNER) {
+    throw new ForbiddenException('Only PARTNER users can be validated.');
+  }
+   // Publier un événement PARTNER_VALIDATED via RabbitMQ 
+   await this.rabbitMQService.publishEvent('PARTNER_VALIDATED', partner);
+
+  return partner;
+}
 }
