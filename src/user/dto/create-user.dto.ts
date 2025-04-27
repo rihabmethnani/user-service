@@ -45,5 +45,8 @@ export class CreateUserDto {
   @IsOptional()
   positionGPS?: string; 
 
+@Field(() => String,{ nullable: true })
+  @IsOptional()
+  zoneResponsabilite?: string; 
 
 }

@@ -62,6 +62,10 @@ export class User extends Document {
   @Prop() 
   positionGPS?: string;
 
+  @Field({ nullable: true }) 
+  @Prop() 
+  zoneResponsabilite?: string;
+
   @Field({defaultValue: false})
   @Prop()
   isValid?: boolean;

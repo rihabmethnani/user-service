@@ -1,7 +1,7 @@
 import { Resolver, Mutation, Args, Context, Query } from '@nestjs/graphql';
 import { UserService } from './user.service';
 import { User } from './entities/user.entity';
-import { NotFoundException, UseGuards, ForbiddenException, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { NotFoundException, UseGuards, ForbiddenException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { Role } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { Roles } from 'src/auth/roles.decorator';
@@ -18,10 +18,10 @@ export class UserResolver {
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN) 
-  @UseInterceptors(FileInterceptor('image'))
+  //@UseInterceptors(FileInterceptor('image'))
   async createAdmin(
     @Args('createUserDto') createUserDto: CreateUserDto,
-    @UploadedFile() file: Express.Multer.File,
+    //@UploadedFile() file: Express.Multer.File,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
@@ -29,25 +29,34 @@ export class UserResolver {
     if (authenticatedUser.role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException('Only SUPER ADMIN can create another ADMIN.');
     }
-    if (file) {
-      createUserDto.image = `/uploads/${file.filename}`;
-    }
+    // if (file) {
+    //   createUserDto.image = `/uploads/${file.filename}`;
+    // }
     createUserDto.role = Role.ADMIN;
 
     return this.userService.create(createUserDto);
   }
 
   @Mutation(() => User)
-  @UseInterceptors(FileInterceptor('image'))
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN) 
+async createAdminAssistant(
+  @Args('createUserDto') createUserDto: CreateUserDto,
+): Promise<User> {
+  createUserDto.role = Role.ADMIN_ASSISTANT;
+  return this.userService.create(createUserDto);
+}
+  @Mutation(() => User)
+  //@UseInterceptors(FileInterceptor('image'))
   async createPartner(
     @Args('createUserDto') createUserDto: CreateUserDto,
-    @UploadedFile() file: Express.Multer.File,
+    //@UploadedFile() file: Express.Multer.File,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
-    if (file) {
-      createUserDto.image = `/uploads/${file.filename}`;
-    }
+    // if (file) {
+    //   createUserDto.image = `/uploads/${file.filename}`;
+    // }
     createUserDto.role = Role.PARTNER;
 
     return this.userService.create(createUserDto);
@@ -67,8 +76,6 @@ export class UserResolver {
     ) {
       throw new ForbiddenException('Only PARTNER can create a CLIENT.');
     }
-
-    // Forcer le rôle CLIENT
     createUserDto.role = Role.CLIENT;
 
     return this.userService.create(createUserDto);
@@ -76,7 +83,7 @@ export class UserResolver {
 
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN) 
+  @Roles(Role.ADMIN, Role.ADMIN_ASSISTANT) 
   async createDriver(
     @Args('createUserDto') createUserDto: CreateUserDto,
     @Context() context,
@@ -91,6 +98,143 @@ export class UserResolver {
 
     return this.userService.create(createUserDto);
   }
+
+
+@Mutation(() => User)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.ADMIN_ASSISTANT)
+async updateDriver(
+  @Args('id') id: string,
+  @Args('updateUserDto') updateUserDto: UpdateUserDto,
+  @Context() context,
+): Promise<User> {
+  const authenticatedUser = context.req.user;
+  const userToUpdate = await this.userService.getById(id);
+  
+  if (!userToUpdate || userToUpdate.role !== Role.DRIVER) {
+    throw new NotFoundException(`Driver with ID ${id} not found or has been deleted.`);
+  }
+
+  const updatedUser = await this.userService.update(id, updateUserDto);
+  
+  if (!updatedUser) {
+    throw new NotFoundException(`Failed to update driver with ID ${id}.`);
+  }  return updatedUser
+}
+
+@Mutation(() => User)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.ADMIN_ASSISTANT)
+async updateClient(
+  @Args('id') id: string,
+  @Args('updateUserDto') updateUserDto: UpdateUserDto,
+  @Context() context,
+): Promise<User> {
+  const authenticatedUser = context.req.user;
+  const userToUpdate = await this.userService.getById(id);
+  
+  if (!userToUpdate || userToUpdate.role !== Role.CLIENT) {
+    throw new NotFoundException(`Client with ID ${id} not found or has been deleted.`);
+  }
+
+  const updatedUser = await this.userService.update(id, updateUserDto);
+  
+  if (!updatedUser) {
+    throw new NotFoundException(`Failed to update Client with ID ${id}.`);
+  }  return updatedUser
+}
+
+@Mutation(() => User)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN)
+async updateSuperAdminProfile(
+  @Args('updateUserDto') updateUserDto: UpdateUserDto,
+  @CurrentUser() superAdmin: User,
+): Promise<User> {
+  const user = await this.userService.getById(superAdmin._id.toString());
+
+  if (!user) {
+    throw new NotFoundException(`Super Admin not found.`);
+  }
+
+  if (user.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenException(`You are not authorized to update this profile.`);
+  }
+
+  const updatedUser = await this.userService.update(user._id.toString(), updateUserDto);
+
+  if (!updatedUser) {
+    throw new NotFoundException(`Failed to update Super Admin profile.`);
+  }
+
+  return updatedUser;
+}
+
+@Mutation(() => User)
+@UseGuards(JwtAuthGuard)
+@Roles(Role.ADMIN, Role.SUPER_ADMIN)
+async updateAdminProfile(
+  @CurrentUser() currentUser: User,
+  @Args('adminId', { nullable: true }) adminId: string,
+  @Args('updateUserDto') updateUserDto: UpdateUserDto,
+): Promise<User> {
+  // Si le Super Admin veut modifier un Admin
+  if (currentUser.role === Role.SUPER_ADMIN) {
+    if (!adminId) {
+      throw new BadRequestException('adminId is required for Super Admin');
+    }
+
+    const updatedUser = await this.userService.update(adminId.toString(), updateUserDto);
+
+    if (!updatedUser) {
+      throw new NotFoundException(`Failed to update Admin profile.`);
+    }  
+  return updatedUser }
+
+  // Si un Admin veut modifier son propre profil
+  if (currentUser.role === Role.ADMIN) {
+    const updatedUser = await this.userService.update(currentUser._id.toString(), updateUserDto);
+
+    if (!updatedUser) {
+      throw new NotFoundException(`Failed to update  Admin profile.`);
+    }  
+  return updatedUser   }
+
+  throw new ForbiddenException('You are not authorized to update admin profiles');
+}
+
+@Mutation(() => User)
+@UseGuards(JwtAuthGuard)
+async updateAssistantAdminProfile(
+  @CurrentUser() currentUser: User,
+  @Args('assistantAdminId', { nullable: true }) assistantAdminId: string,
+  @Args('updateUserDto') updateUserDto: UpdateUserDto,
+): Promise<User> {
+  // Si Admin veut modifier un AssistantAdmin
+  if (currentUser.role === Role.ADMIN) {
+    const idToUpdate = assistantAdminId ? assistantAdminId : currentUser._id.toString();
+
+    const updatedUser = await this.userService.update(idToUpdate, updateUserDto);
+
+    if (!updatedUser) {
+      throw new NotFoundException('Failed to update Assistant Admin profile.');
+    }
+    return updatedUser;
+  }
+
+  // Si AssistantAdmin veut modifier lui-même son profil
+  if (currentUser.role === Role.ADMIN_ASSISTANT) {
+    const updatedUser = await this.userService.update(currentUser._id.toString(), updateUserDto);
+
+    if (!updatedUser) {
+      throw new NotFoundException('Failed to update Assistant Admin profile.');
+    }
+    return updatedUser;
+  }
+
+  throw new ForbiddenException('You are not authorized to update assistant admin profiles');
+}
+
 
   @Query(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -151,37 +295,11 @@ export class UserResolver {
   //   throw new ForbiddenException('You are not authorized to update this user.');
   // }
 
-  @Mutation(() => User)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  async updateAdmin(
-    @Args('id') id: string,
-    @Args('updateUserDto') updateUserDto: UpdateUserDto,
-    @Context() context,
-  ): Promise<User> {
-    const authenticatedUser = context.req.user;
-    const adminToUpdate = await this.userService.getById(id);
-  
-    if (!adminToUpdate) {
-      throw new NotFoundException(`Admin with ID ${id} not found or has been deleted.`);
-    }
-  
-    if (adminToUpdate.role !== Role.ADMIN) {
-      throw new ForbiddenException(`User with ID ${id} is not an ADMIN.`);
-    }
-  
-    const updatedUser = await this.userService.update(id, updateUserDto);
-  
-    if (!updatedUser) {
-      throw new NotFoundException(`Failed to update admin with ID ${id}.`);
-    }
-  
-    return updatedUser; // Ici, TypeScript sait que updatedUser ne sera jamais null
-  }
+ 
 
   @Mutation(() => User)
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.PARTNER)
+@Roles(Role.ADMIN, Role.PARTNER)
 async updatePartner(
   @Args('id') id: string,
   @Args('updateUserDto') updateUserDto: UpdateUserDto,
@@ -270,7 +388,7 @@ async updatePartner(
 
   @Query(() => [User])
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN,Role.ADMIN_ASSISTANT)
   async getUsersByRole(@Args('role') role: Role): Promise<User[]> {
     return this.userService.getByRole(role);
   }
@@ -291,7 +409,7 @@ async updatePartner(
 
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN, Role.ADMIN_ASSISTANT)
   async validatePartner(
     @Args('partnerId') partnerId: string,
     @CurrentUser() admin: User,
