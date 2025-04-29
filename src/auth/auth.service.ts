@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { UserService } from '../user/user.service';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../user/entities/user.entity';
-import { RabbitMQService } from 'src/RabbitMq/rabbitmq.service';
+import { RabbitMQProducer } from 'src/RabbitMq/rabbitmq.service';
 import { AuthResponse } from './dto/auth-response';
 import { Role } from '../user/entities/user.entity';
 
@@ -12,7 +12,7 @@ export class AuthService {
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
-    private rabbitMQService: RabbitMQService,
+    private rabbitMQProducer: RabbitMQProducer,
   ) {}
 
   async validateUser(email: string, password: string): Promise<User | null> {
@@ -43,28 +43,28 @@ export class AuthService {
     return null;
   }
 
-  async login(user: any): Promise<AuthResponse> {
-    // Vérification supplémentaire au moment du login (au cas où)
+  async login(user: any): Promise<{ access_token: string }> {
+    // Vérification supplémentaire au moment du login
     if (user.role === Role.PARTNER && !user.isValid) {
       throw new UnauthorizedException('Partner account not yet validated by admin.');
     }
 
-    const payload = { 
-      username: user.email, 
-      sub: user._id, 
+    const payload = {
+      username: user.email,
+      sub: user._id,
       role: user.role,
-      isValid: user.role === Role.PARTNER ? user.isValid : undefined
+      isValid: user.role === Role.PARTNER ? user.isValid : undefined,
     };
-  
+
     // Publier un événement "USER_LOGGED_IN"
-    await this.rabbitMQService.publishEvent('USER_LOGGED_IN', {
+    await this.rabbitMQProducer.publishEvent('USER_LOGGED_IN', {
       userId: user._id,
       email: user.email,
       role: user.role,
       isValid: user.role === Role.PARTNER ? user.isValid : undefined,
       timestamp: new Date(),
     });
-  
+
     return {
       access_token: this.jwtService.sign(payload, {
         secret: process.env.JWT_SECRET!,

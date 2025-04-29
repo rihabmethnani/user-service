@@ -10,6 +10,7 @@ import { JwtAuthGuard } from 'src/auth/jwt.guard';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CurrentUser } from 'src/decoraters/current-user.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Types } from 'mongoose';
 
 @Resolver(() => User)
 export class UserResolver {
@@ -333,41 +334,68 @@ async updatePartner(
   return updatedUser;
 }
 
-  @Mutation(() => User)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  async softRemoveUser(
-    @Args('id') id: string,
-    @Context() context,
-  ): Promise<User> {
-    const authenticatedUser = context.req.user;
-    const userToDelete = await this.userService.getById(id);
+@Mutation(() => User)
+@UseGuards(JwtAuthGuard, RolesGuard)
+async softRemoveUser(
+  @Args('id') id: string,
+  @Context() context,
+): Promise<User> {
+  const authenticatedUser = context.req.user;
+  const userToDelete = await this.userService.getById(id);
 
-    if (!userToDelete) {
-      throw new NotFoundException(`User with ID ${id} not found.`);
-    }
-
-    if (authenticatedUser.role === Role.SUPER_ADMIN) {
-      const deletedUser = await this.userService.softRemove(id);
-      if (!deletedUser) {
-        throw new NotFoundException(`User with ID ${id} not found.`);
-      }
-      return deletedUser;
-    }
-
-    if (
-      authenticatedUser.role === Role.PARTNER &&
-      userToDelete.role === Role.CLIENT
-    ) {
-      const deletedUser = await this.userService.softRemove(id);
-      if (!deletedUser) {
-        throw new NotFoundException(`User with ID ${id} not found.`);
-      }
-      return deletedUser;
-    }
-
-    throw new ForbiddenException('You are not authorized to delete this user.');
+  if (!userToDelete) {
+    throw new NotFoundException(`User with ID ${id} not found.`);
   }
 
+  // Super Admin peut supprimer n'importe qui sauf un autre Super Admin
+  if (authenticatedUser.role === Role.SUPER_ADMIN) {
+    if (userToDelete.role === Role.SUPER_ADMIN) {
+      throw new ForbiddenException('You cannot delete another Super Admin.');
+    }
+    return this.softDeleteUser(id);
+  }
+
+  // Admin peut supprimer Assistant Admin, Partner ou Driver
+  if (authenticatedUser.role === Role.ADMIN) {
+    if (
+      userToDelete.role === Role.ADMIN_ASSISTANT ||
+      userToDelete.role === Role.PARTNER ||
+      userToDelete.role === Role.DRIVER
+    ) {
+      return this.softDeleteUser(id);
+    }
+    throw new ForbiddenException('You can only delete Assistant Admin, Partner or Driver users.');
+  }
+
+  // Assistant Admin peut supprimer Partner ou Driver
+  if (authenticatedUser.role === Role.ADMIN_ASSISTANT) {
+    if (
+      userToDelete.role === Role.PARTNER ||
+      userToDelete.role === Role.DRIVER
+    ) {
+      return this.softDeleteUser(id);
+    }
+    throw new ForbiddenException('You can only delete Partner or Driver users.');
+  }
+
+  // Partner peut supprimer Client
+  if (authenticatedUser.role === Role.PARTNER) {
+    if (userToDelete.role === Role.CLIENT) {
+      return this.softDeleteUser(id);
+    }
+    throw new ForbiddenException('You can only delete Client users.');
+  }
+
+  throw new ForbiddenException('You are not authorized to delete any users.');
+}
+
+private async softDeleteUser(id: string): Promise<User> {
+  const deletedUser = await this.userService.softRemove(id);
+  if (!deletedUser) {
+    throw new NotFoundException(`User with ID ${id} not found.`);
+  }
+  return deletedUser;
+}
 
   @Query(() => [User])
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -377,15 +405,21 @@ async updatePartner(
   }
 
   @Query(() => User)
-  @UseGuards(JwtAuthGuard)
   async getUserById(@Args('id') id: string): Promise<User> {
-    const user = await this.userService.getById(id);
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found.`);
+    // Vérifier si l'ID est un ObjectId valide
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid user ID');
     }
+  
+    // Récupérer l'utilisateur par ID
+    const user = await this.userService.getById(id);
+  
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+  
     return user;
   }
-
   @Query(() => [User])
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN,Role.ADMIN_ASSISTANT)

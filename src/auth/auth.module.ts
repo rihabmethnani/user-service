@@ -8,7 +8,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UserModule } from 'src/user/user.module';
 import { AuthResolver } from './auth.resolver';
 import { JwtAuthGuard } from './jwt.guard';
-import { RabbitMQService } from 'src/RabbitMq/rabbitmq.service';
+import { RabbitMQProducer } from 'src/RabbitMq/rabbitmq.service';
 
 @Module({
   imports: [
@@ -21,7 +21,7 @@ import { RabbitMQService } from 'src/RabbitMq/rabbitmq.service';
     }),
     forwardRef(() => UserModule),
   ],
-  providers: [AuthService, JwtStrategy, RolesGuard, AuthResolver, JwtService, JwtAuthGuard,RabbitMQService],
+  providers: [AuthService, JwtStrategy, RolesGuard, AuthResolver, JwtService, JwtAuthGuard,RabbitMQProducer],
   exports: [AuthService, JwtService, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

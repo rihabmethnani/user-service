@@ -6,12 +6,12 @@ import { Role } from './entities/user.entity';
 import * as bcrypt from 'bcryptjs';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { RabbitMQService } from 'src/RabbitMq/rabbitmq.service';
+import { RabbitMQProducer } from 'src/RabbitMq/rabbitmq.service';
 @Injectable()
 export class UserService implements OnModuleInit {
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,
-    private rabbitMQService: RabbitMQService, // Injection du service RabbitMQ
+    private rabbitMQProducer: RabbitMQProducer, // Injection du service RabbitMQ
   ) {}
 
   async onModuleInit() {
@@ -37,7 +37,7 @@ export class UserService implements OnModuleInit {
       const createdAdmin = await this.userModel.create(adminDto);
 
       // Publier un événement "USER_CREATED" pour l'admin
-      await this.rabbitMQService.publishEvent('ADMIN_CREATED', createdAdmin);
+      await this.rabbitMQProducer.publishEvent('ADMIN_CREATED', createdAdmin);
 
       console.log('Super_Admin created successfully');
     } else {
@@ -51,7 +51,7 @@ export class UserService implements OnModuleInit {
     const savedUser = await newUser.save();
 
     // Publier un événement "USER_CREATED"
-    await this.rabbitMQService.publishEvent('USER_CREATED', savedUser);
+    await this.rabbitMQProducer.publishEvent('USER_CREATED', savedUser);
 
     return savedUser;
   }
@@ -67,7 +67,7 @@ export class UserService implements OnModuleInit {
 
     if (updatedUser) {
       // Publier un événement "USER_UPDATED"
-      await this.rabbitMQService.publishEvent('USER_UPDATED', updatedUser);
+      await this.rabbitMQProducer.publishEvent('USER_UPDATED', updatedUser);
     }
 
     return updatedUser;
@@ -81,10 +81,10 @@ export class UserService implements OnModuleInit {
   
       if (deletedUser) {
         // Publier un événement "USER_DELETED"
-        await this.rabbitMQService.publishEvent('USER_DELETED', deletedUser);
+        await this.rabbitMQProducer.publishEvent('USER_DELETED', deletedUser);
       } else {
         // Publier un événement "USER_DELETION_FAILED"
-        await this.rabbitMQService.publishEvent('USER_DELETION_FAILED', {
+        await this.rabbitMQProducer.publishEvent('USER_DELETION_FAILED', {
           userId: id,
           timestamp: new Date(),
         });
@@ -93,7 +93,7 @@ export class UserService implements OnModuleInit {
       return deletedUser;
     } catch (error) {
       // Publier un événement "CRITICAL_ERROR"
-      await this.rabbitMQService.publishEvent('CRITICAL_ERROR', {
+      await this.rabbitMQProducer.publishEvent('CRITICAL_ERROR', {
         action: 'USER_SOFT_REMOVE',
         userId: id,
         error: error.message,
@@ -138,7 +138,7 @@ async validatePartner(partnerId: string): Promise<User> {
     throw new ForbiddenException('Only PARTNER users can be validated.');
   }
    // Publier un événement PARTNER_VALIDATED via RabbitMQ 
-   await this.rabbitMQService.publishEvent('PARTNER_VALIDATED', partner);
+   await this.rabbitMQProducer.publishEvent('PARTNER_VALIDATED', partner);
 
   return partner;
 }

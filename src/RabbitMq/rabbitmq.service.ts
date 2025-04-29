@@ -1,39 +1,45 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import * as amqp from 'amqplib';
 
 @Injectable()
-export class RabbitMQService {
+export class RabbitMQProducer implements OnModuleInit {
   private connection: amqp.Connection;
   private channel: amqp.Channel;
+  private readonly exchangeName = 'user_events';
 
-  constructor() {
-    this.init();
+  async onModuleInit() {
+    await this.connect();
   }
 
-  async init() {
+  async connect() {
     try {
-      // Établir une connexion avec RabbitMQ
       this.connection = await amqp.connect('amqp://localhost');
       this.channel = await this.connection.createChannel();
-
-      // Déclarer un exchange (fanout pour diffuser les messages à tous les abonnés)
-      await this.channel.assertExchange('user_events', 'topic', { durable: true });      
-      console.log('Connected to RabbitMQ and exchange declared.');
+      await this.channel.assertExchange(this.exchangeName, 'topic', { durable: true });
+      console.log('✅ Connected to RabbitMQ and Exchange asserted');
     } catch (error) {
-      console.error('Failed to connect to RabbitMQ:', error);
+      console.error('❌ Erreur lors de la connexion à RabbitMQ:', error);
     }
   }
 
   async publishEvent(eventType: string, payload: any) {
-    const message = JSON.stringify({ eventType, payload });
-
     if (!this.channel) {
-      console.error('RabbitMQ channel is not initialized.');
-      return;
+      await this.connect();
     }
 
-    // Publier le message dans l'exchange
-    this.channel.publish('user_events', '', Buffer.from(message));
-    console.log(`Published event: ${eventType}`, payload);
+    const event = {
+      eventId: `${Date.now()}-${Math.random()}`,
+      eventType,
+      payload,
+    };
+
+    const routingKey = `user.${eventType.toLowerCase()}`;
+    this.channel.publish(
+      this.exchangeName,
+      routingKey,
+      Buffer.from(JSON.stringify(event)),
+    );
+
+    console.log(`🚀 Event envoyé: ${routingKey}`, event);
   }
 }
