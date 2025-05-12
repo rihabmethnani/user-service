@@ -6,11 +6,13 @@ import { UserResolver } from './user.resolver';
 import { AuthModule } from '../auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { RabbitMQProducer } from 'src/RabbitMq/rabbitmq.service';
+import { FileUploadModule } from 'src/file-upload/file-upload.module';
 @Module({
     imports: [
       ConfigModule,
       MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]), // Assurez-vous que ceci est bien présent
       forwardRef(() => AuthModule),
+      FileUploadModule
     ],
     providers: [UserService, UserResolver,RabbitMQProducer],
     exports: [UserService, MongooseModule], // Exportez MongooseModule pour rendre UserModel accessible

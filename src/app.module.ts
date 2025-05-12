@@ -15,6 +15,7 @@ import { JwtModule } from '@nestjs/jwt';
     MongooseModule.forRoot(process.env.MONGO_URI!),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
+      csrfPrevention: false,
       autoSchemaFile: true,
       context: ({ req }) => ({ req }),
     }),

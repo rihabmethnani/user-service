@@ -58,7 +58,7 @@ export class AuthService {
 
     // Publier un événement "USER_LOGGED_IN"
     await this.rabbitMQProducer.publishEvent('USER_LOGGED_IN', {
-      userId: user._id,
+      userId: user._id.toString(),
       email: user.email,
       role: user.role,
       isValid: user.role === Role.PARTNER ? user.isValid : undefined,

@@ -1,7 +1,7 @@
 import { Resolver, Mutation, Args, Context, Query } from '@nestjs/graphql';
 import { UserService } from './user.service';
-import { User } from './entities/user.entity';
-import { NotFoundException, UseGuards, ForbiddenException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { TunisianRegion, User } from './entities/user.entity';
+import { NotFoundException, UseGuards, ForbiddenException, UseInterceptors, UploadedFile, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Role } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { Roles } from 'src/auth/roles.decorator';
@@ -9,55 +9,72 @@ import { RolesGuard } from 'src/auth/roles.guard';
 import { JwtAuthGuard } from 'src/auth/jwt.guard';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CurrentUser } from 'src/decoraters/current-user.decorator';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { Types } from 'mongoose';
+import { RabbitMQProducer } from 'src/RabbitMq/rabbitmq.service';
+import { UserCountStats } from './entities/userCountStats.entity';
+import { PartnerCountStats } from './entities/partnerCountsStats.entity';
+import { FileUploadInterceptor } from 'src/file-upload/file.interceptor';
 
 @Resolver(() => User)
 export class UserResolver {
-  constructor(private readonly userService: UserService) { }
-
+  constructor(private readonly userService: UserService,
+        private rabbitMQProducer: RabbitMQProducer, 
+    
+  ) { }
   @Mutation(() => User)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN) 
-  //@UseInterceptors(FileInterceptor('image'))
+  @Roles(Role.SUPER_ADMIN)
+  // @UseInterceptors(FileUploadInterceptor)
   async createAdmin(
     @Args('createUserDto') createUserDto: CreateUserDto,
-    //@UploadedFile() file: Express.Multer.File,
+    // @UploadedFile() file: Express.Multer.File,
     @Context() context,
   ): Promise<User> {
-    const authenticatedUser = context.req.user;
-
-    if (authenticatedUser.role !== Role.SUPER_ADMIN) {
-      throw new ForbiddenException('Only SUPER ADMIN can create another ADMIN.');
-    }
     // if (file) {
     //   createUserDto.image = `/uploads/${file.filename}`;
     // }
+    
+    const authenticatedUser = context.req.user;
+    if (authenticatedUser.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SUPER ADMIN can create another ADMIN.');
+    }
+    
     createUserDto.role = Role.ADMIN;
-
     return this.userService.create(createUserDto);
   }
 
   @Mutation(() => User)
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN) 
-async createAdminAssistant(
-  @Args('createUserDto') createUserDto: CreateUserDto,
-): Promise<User> {
-  createUserDto.role = Role.ADMIN_ASSISTANT;
-  return this.userService.create(createUserDto);
-}
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN) 
+  async createAdminAssistant(
+    @Args('createUserDto') createUserDto: CreateUserDto,
+    @CurrentUser() currentAdmin: User // Récupère l'admin qui crée le compte
+  ): Promise<User> {
+    createUserDto.role = Role.ADMIN_ASSISTANT;
+    createUserDto.zoneResponsabilite = currentAdmin.zoneResponsabilite as TunisianRegion;
+
+    const newAssistant = await this.userService.create(createUserDto);
+  
+    // Publier l'événement avec les détails nécessaires
+    await this.rabbitMQProducer.publishEvent('ADMIN_ASSISTANT_CREATED', {
+      assistantId: newAssistant._id.toString(),
+      assistantEmail: newAssistant.email,
+      assistantName: newAssistant.name,
+      adminCreatorId: currentAdmin._id.toString(),
+      adminCreatorEmail: currentAdmin.email,
+      password: createUserDto.password
+    });
+  
+    return newAssistant;
+  }
+
   @Mutation(() => User)
-  //@UseInterceptors(FileInterceptor('image'))
   async createPartner(
     @Args('createUserDto') createUserDto: CreateUserDto,
-    //@UploadedFile() file: Express.Multer.File,
     @Context() context,
   ): Promise<User> {
     const authenticatedUser = context.req.user;
-    // if (file) {
-    //   createUserDto.image = `/uploads/${file.filename}`;
-    // }
+   
     createUserDto.role = Role.PARTNER;
 
     return this.userService.create(createUserDto);
@@ -77,9 +94,14 @@ async createAdminAssistant(
     ) {
       throw new ForbiddenException('Only PARTNER can create a CLIENT.');
     }
-    createUserDto.role = Role.CLIENT;
+    const clientData: CreateUserDto = {
+      ...createUserDto,
+      role: Role.CLIENT,
+      password: '123',
+      createdBy:authenticatedUser._id
+    };
 
-    return this.userService.create(createUserDto);
+    return this.userService.create(clientData);
   }
 
   @Mutation(() => User)
@@ -87,17 +109,35 @@ async createAdminAssistant(
   @Roles(Role.ADMIN, Role.ADMIN_ASSISTANT) 
   async createDriver(
     @Args('createUserDto') createUserDto: CreateUserDto,
-    @Context() context,
+    @CurrentUser() currentUser: User, // Utilisez CurrentUser au lieu de Context pour plus de clarté
   ): Promise<User> {
-    const authenticatedUser = context.req.user;
-
-    if (authenticatedUser.role !== Role.ADMIN && authenticatedUser.role !== Role.SUPER_ADMIN) {
+    // Vérification des permissions
+    if (currentUser.role !== Role.ADMIN && currentUser.role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException('Only SUPER_ADMIN or ADMIN can create a DRIVER.');
     }
+    createUserDto.zoneResponsabilite = currentUser.zoneResponsabilite as TunisianRegion;
 
+  
     createUserDto.role = Role.DRIVER;
-
-    return this.userService.create(createUserDto);
+    const newDriver = await this.userService.create(createUserDto);
+  
+   
+     
+  
+      // Optionnel : Publier un événement RabbitMQ si nécessaire
+      await this.rabbitMQProducer.publishEvent('DRIVER_CREATED', {
+        driverId: newDriver._id.toString(),
+        driverEmail: newDriver.email,
+        driverName: newDriver.name,
+        creatorId: currentUser._id.toString(),
+        creatorEmail: currentUser.email,
+        password: createUserDto.password,
+        createdAt: new Date().toISOString()
+      });
+  
+    
+  
+    return newDriver;
   }
 
 
@@ -124,8 +164,7 @@ async updateDriver(
 }
 
 @Mutation(() => User)
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.ADMIN_ASSISTANT)
+@UseGuards(JwtAuthGuard)
 async updateClient(
   @Args('id') id: string,
   @Args('updateUserDto') updateUserDto: UpdateUserDto,
@@ -172,7 +211,7 @@ async updateSuperAdminProfile(
 }
 
 @Mutation(() => User)
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard,RolesGuard)
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
 async updateAdminProfile(
   @CurrentUser() currentUser: User,
@@ -249,6 +288,22 @@ async updateAssistantAdminProfile(
   }
 
 
+  @Query(() => [User], { name: 'usersByRoleInMyZone' })
+@UseGuards(JwtAuthGuard)
+async getUsersByRoleInMyZone(
+  @Args('role', { type: () => Role }) role: Role,
+  @CurrentUser() currentUser: User
+): Promise<User[]> {
+  const zoneResponsabilite = currentUser.zoneResponsabilite;
+  if (!zoneResponsabilite) {
+    throw new Error('Votre zone de responsabilité est manquante.');
+  }
+
+  return this.userService.getUserByRegionAndRole(zoneResponsabilite, role);
+}
+
+  
+  
   // @Mutation(() => User)
   // @UseGuards(JwtAuthGuard, RolesGuard)
   // async updateUser(
@@ -460,5 +515,36 @@ private async softDeleteUser(id: string): Promise<User> {
 
     return updatedPartner;
   }
+
+  @Mutation(() => User)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.ADMIN_ASSISTANT)
+  async invalidatePartner(@Args('partnerId') partnerId: string): Promise<User> {
+    return this.userService.invalidatePartner(partnerId);
+  }
+
+  @Query(() => UserCountStats)
+  async getUserCounts() {
+    return this.userService.getUserRoleCounts();
+  }
+
+
+ @Query(() => PartnerCountStats)
+  async getPartnerCounts() {
+    return this.userService.getPartnerCounts();
+}
+
+@Query(() => [User])
+@UseGuards(JwtAuthGuard)
+async getPartnerClients(
+  @Args('partnerId') partnerId: string,
+   @CurrentUser() currentUser: User,
+) {
+  console.log('Current User:', currentUser); 
+  if (!currentUser) throw new UnauthorizedException('User not authenticated');
+  
+  partnerId = currentUser._id; // Maintenant, cela ne devrait plus planter
+  return this.userService.findClientsByPartnerId(partnerId);
+}
 
 }

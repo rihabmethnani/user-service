@@ -11,7 +11,7 @@ import { RabbitMQProducer } from 'src/RabbitMq/rabbitmq.service';
 export class UserService implements OnModuleInit {
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,
-    private rabbitMQProducer: RabbitMQProducer, // Injection du service RabbitMQ
+    private rabbitMQProducer: RabbitMQProducer, 
   ) {}
 
   async onModuleInit() {
@@ -45,14 +45,35 @@ export class UserService implements OnModuleInit {
     }
   }
 
+
+  private async publishUserCreatedEvent(user: User) {
+    const eventPayload = {
+      eventType: 'USER_CREATED', // Utilise exactement ce que le consumer attend
+      timestamp: new Date().toISOString(),
+      payload: {
+        userId: user._id.toString(),
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        status: user.role === Role.PARTNER ? 'PENDING_VALIDATION' : 'ACTIVE',
+      },
+    };
+  
+    await this.rabbitMQProducer.publishEvent(
+      `CREATED_${user.role}`,
+      eventPayload
+    );
+    
+    
+  }
+  
   async create(createUserDto: CreateUserDto): Promise<User> {
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
     const newUser = new this.userModel({ ...createUserDto, password: hashedPassword });
     const savedUser = await newUser.save();
 
     // Publier un événement "USER_CREATED"
-    await this.rabbitMQProducer.publishEvent('USER_CREATED', savedUser);
-
+  // await this.publishUserCreatedEvent(savedUser);
     return savedUser;
   }
 
@@ -119,6 +140,25 @@ export class UserService implements OnModuleInit {
     return this.userModel.find({ role, deletedAt: null }).exec();
   }
 
+
+  async findClientsByPartnerId(partnerId: string): Promise<User[]> {
+    return this.userModel.find({
+      role: Role.CLIENT,
+      createdBy: partnerId,
+      deletedAt : null
+    }).exec();
+  }
+
+  async getUserByRegionAndRole(zoneResponsabilite: string, role: Role): Promise<User[]> {
+    return this.userModel.find({
+      zoneResponsabilite,
+      role,
+      deletedAt: null
+    }).exec();
+  }
+  
+
+  
 async validatePartner(partnerId: string): Promise<User> {
   const partner = await this.userModel.findByIdAndUpdate(
     partnerId,
@@ -142,4 +182,62 @@ async validatePartner(partnerId: string): Promise<User> {
 
   return partner;
 }
+
+
+async invalidatePartner(partnerId: string): Promise<User> {
+  const partner = await this.userModel.findByIdAndUpdate(
+    partnerId,
+    {
+      isValid: false,
+      updatedAt: new Date(),
+    },
+    { new: true }
+  ).exec();
+
+  if (!partner) {
+    throw new NotFoundException(`Partner with ID ${partnerId} not found.`);
+  }
+
+  if (partner.role !== Role.PARTNER) {
+    throw new ForbiddenException('Only PARTNER users can be invalidated.');
+  }
+
+  await this.rabbitMQProducer.publishEvent('PARTNER_INVALIDATED', partner);
+
+  return partner;
+}
+
+
+async getUserRoleCounts(): Promise<{
+  drivers: number;
+  adminAssistants: number;
+}> {
+  const [drivers, adminAssistants] = await Promise.all([
+    this.userModel.countDocuments({ role: Role.DRIVER, deletedAt: null }).exec(),
+    this.userModel.countDocuments({ role: Role.ADMIN_ASSISTANT, deletedAt: null }).exec(),
+  ]);
+
+  return {
+    drivers,
+    adminAssistants,
+  };
+}
+async getPartnerCounts(): Promise<{
+  total: number;
+  active: number;
+  inactive: number;
+}> {
+  const [total, active] = await Promise.all([
+    this.userModel.countDocuments({ role: Role.PARTNER, deletedAt: null }).exec(),
+    this.userModel.countDocuments({ role: Role.PARTNER, deletedAt: null, isValid: true }).exec(),
+  ]);
+
+  return {
+    total,
+    active,
+    inactive: total - active,
+  };
+}
+
+
 }

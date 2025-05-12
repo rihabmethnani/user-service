@@ -28,7 +28,7 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/mongoose": "^11.0.1",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.0.20",
+    "@nestjs/platform-express": "^11.1.0",
     "amqplib": "^0.10.5",
     "apollo-server-express": "^3.13.0",
     "bcryptjs": "^3.0.2",

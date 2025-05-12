@@ -1,6 +1,6 @@
 import { InputType, Field } from '@nestjs/graphql';
 import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
-import { Role } from '../entities/user.entity';
+import { Role, TunisianRegion } from '../entities/user.entity';
 
 @InputType()
 export class CreateUserDto {
@@ -41,12 +41,13 @@ export class CreateUserDto {
   @IsOptional()
   companyName?: string;
 
+
   @Field(() => String, { nullable: true })
   @IsOptional()
   positionGPS?: string; 
 
-@Field(() => String,{ nullable: true })
-  @IsOptional()
-  zoneResponsabilite?: string; 
+  @Field(() => TunisianRegion,{ nullable: true }) 
+   @IsOptional()
+  zoneResponsabilite?: TunisianRegion; 
 
 }
