@@ -31,6 +31,18 @@ export class CreateUserDto {
 
   @Field({ nullable: true })
   @IsOptional()
+  city?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  postalCode?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  region?: TunisianRegion;
+
+  @Field({ nullable: true })
+  @IsOptional()
   image?: string;
 
   @Field(() => String, { nullable: true })

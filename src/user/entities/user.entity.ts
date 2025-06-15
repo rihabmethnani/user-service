@@ -81,6 +81,18 @@ export class User extends Document {
 
   @Field({ nullable: true }) 
   @Prop() 
+  city?: string;
+
+  @Field({ nullable: true }) 
+  @Prop() 
+  postalCode?: string;
+  
+  @Field({ nullable: true }) 
+  @Prop() 
+  region?: TunisianRegion;
+
+  @Field({ nullable: true }) 
+  @Prop() 
   image?: string;
 
   @Field(() => ID, { nullable: true }) 

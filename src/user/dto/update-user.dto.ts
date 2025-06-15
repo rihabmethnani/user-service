@@ -22,6 +22,20 @@ export class UpdateUserDto {
   @IsOptional()
   address?: string;
 
+
+    @Field({ nullable: true })
+  @IsOptional()
+  city?: string;
+
+    @Field({ nullable: true })
+  @IsOptional()
+  postalCode?: string;
+
+    @Field({ nullable: true })
+  @IsOptional()
+  region?: TunisianRegion;
+
+  
   @Field({ nullable: true })
   @IsOptional()
   image?: string;

@@ -76,8 +76,21 @@ export class UserResolver {
     const authenticatedUser = context.req.user;
    
     createUserDto.role = Role.PARTNER;
+  const newPartner = await this.userService.create(createUserDto)
 
-    return this.userService.create(createUserDto);
+    // Publier l'événement pour notifier les admins
+    await this.rabbitMQProducer.publishEvent("PARTNER_CREATED", {
+      userId: newPartner._id.toString(),
+      email: newPartner.email,
+      name: newPartner.name,
+      role: Role.PARTNER,
+      createdAt: new Date().toISOString(),
+      // Ajouter d'autres informations si nécessaire
+      phone: newPartner.phone,
+      company: newPartner.companyName, // si vous avez ce champ
+    })
+
+    return newPartner
   }
 
   @Mutation(() => User)
